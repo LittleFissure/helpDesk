@@ -1,0 +1,5 @@
+# Main Discord library.
+discord.py>=2.4.0
+
+# Loads variables from a .env file.
+python-dotenv>=1.0.1
