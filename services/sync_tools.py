@@ -2,8 +2,6 @@ from __future__ import annotations
 
 """Helpers for syncing existing members and repairing tracked assets."""
 
-import discord
-
 from services.channels import (
     clear_personal_channel_id,
     create_room_for_member,

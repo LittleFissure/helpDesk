@@ -2,8 +2,6 @@ from __future__ import annotations
 
 """Role-related service functions."""
 
-from typing import List, Optional, Tuple
-
 import discord
 
 from db import get_connection
@@ -76,17 +74,26 @@ async def ensure_personal_role(member):
     return role
 
 
-async def reset_personal_role_colour(member):
-    """Set the member's personal role back to Discord's default colour."""
+async def set_personal_role_colour(member, colour: discord.Colour, actor=None):
+    """Set the member's personal role colour and return the role."""
     role = await ensure_personal_role(member)
-    await role.edit(colour=discord.Colour.default(), reason="Personal colour reset by {0}".format(member))
+    actor_label = actor if actor is not None else member
+    await role.edit(colour=colour, reason="Personal colour updated by {0}".format(actor_label))
+    await log_event(member.guild, "Role Colour Updated", "Updated a tracked personal role colour.", actor=actor_label, target=role)
+    return role
 
 
-async def rename_personal_role(member, new_name):
+async def reset_personal_role_colour(member, actor=None):
+    """Set the member's personal role back to Discord's default colour."""
+    return await set_personal_role_colour(member, discord.Colour.default(), actor=actor or member)
+
+
+async def rename_personal_role(member, new_name, actor=None):
     """Rename the member's personal role and return it."""
     role = await ensure_personal_role(member)
-    await role.edit(name=new_name, reason="Personal role renamed by {0}".format(member))
-    await log_event(member.guild, "Role Renamed", "Renamed a tracked personal role.", actor=member, target=role)
+    actor_label = actor if actor is not None else member
+    await role.edit(name=new_name, reason="Personal role renamed by {0}".format(actor_label))
+    await log_event(member.guild, "Role Renamed", "Renamed a tracked personal role.", actor=actor_label, target=role)
     return role
 
 

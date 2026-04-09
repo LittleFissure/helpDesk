@@ -2,7 +2,6 @@ from __future__ import annotations
 
 """Helpers for validating and sanitising user-provided names."""
 
-
 import re
 
 HEX_PATTERN = re.compile(r"^#?[0-9a-fA-F]{6}$")

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 """Channel-related service functions."""
 
-from typing import Dict
-
 import discord
 
 from db import get_connection
@@ -70,27 +68,32 @@ def get_member_room(guild, user_id):
 
 
 def get_room_lock_state(guild_id, user_id):
-    """Return whether a room is locked and whether staff created that lock."""
+    """Return whether a room is locked, whether staff created that lock, and who locked it."""
     with get_connection() as connection:
         row = connection.execute(
-            "SELECT locked_by_staff FROM room_locks WHERE guild_id = ? AND user_id = ?",
+            "SELECT locked_by_staff, lock_actor_id FROM room_locks WHERE guild_id = ? AND user_id = ?",
             (guild_id, user_id),
         ).fetchone()
     if row is None:
-        return {"locked": False, "locked_by_staff": False}
-    return {"locked": True, "locked_by_staff": bool(row["locked_by_staff"])}
+        return {"locked": False, "locked_by_staff": False, "lock_actor_id": None}
+    return {
+        "locked": True,
+        "locked_by_staff": bool(row["locked_by_staff"]),
+        "lock_actor_id": int(row["lock_actor_id"]) if row["lock_actor_id"] else None,
+    }
 
 
-def set_room_lock_state(guild_id, user_id, locked_by_staff):
-    """Store that a room is locked, and record whether staff created the lock."""
+def set_room_lock_state(guild_id, user_id, locked_by_staff, actor_id):
+    """Store that a room is locked, whether staff created the lock, and who applied it."""
     with get_connection() as connection:
         connection.execute(
             """
-            INSERT INTO room_locks (guild_id, user_id, locked_by_staff)
-            VALUES (?, ?, ?)
-            ON CONFLICT(guild_id, user_id) DO UPDATE SET locked_by_staff = excluded.locked_by_staff
+            INSERT INTO room_locks (guild_id, user_id, locked_by_staff, lock_actor_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id, user_id)
+            DO UPDATE SET locked_by_staff = excluded.locked_by_staff, lock_actor_id = excluded.lock_actor_id
             """,
-            (guild_id, user_id, 1 if locked_by_staff else 0),
+            (guild_id, user_id, 1 if locked_by_staff else 0, actor_id),
         )
         connection.commit()
 
@@ -197,14 +200,15 @@ async def create_room_for_member(member):
     return channel
 
 
-async def rename_member_room(guild, user_id, new_name):
+async def rename_member_room(guild, user_id, new_name, actor=None):
     """Rename the member's room in this guild and return the updated channel."""
     channel = get_member_room(guild, user_id)
     if channel is None:
         raise LookupError("No personal room was found for you in this server.")
 
-    await channel.edit(name=new_name, reason="Personal room renamed by owner {0}".format(user_id))
-    await log_event(guild, "Room Renamed", "Renamed a tracked personal room.", actor="<@{0}>".format(user_id), target=channel)
+    actor_label = actor if actor is not None else "<@{0}>".format(user_id)
+    await channel.edit(name=new_name, reason="Personal room renamed by {0}".format(actor_label))
+    await log_event(guild, "Room Renamed", "Renamed a tracked personal room.", actor=actor_label, target=channel)
     return channel
 
 
@@ -273,15 +277,22 @@ async def archive_member_room(member):
         await log_event(member.guild, "Room Archived", "Archive category missing, so the room was archived in place.", actor=member, target=channel)
 
 
-async def lock_member_room(member, locked_by_staff):
+async def lock_member_room(member, locked_by_staff, actor):
     """Lock a member's room so only staff can talk there."""
-    set_room_lock_state(member.guild.id, member.id, locked_by_staff=locked_by_staff)
+    set_room_lock_state(member.guild.id, member.id, locked_by_staff=locked_by_staff, actor_id=actor.id)
     channel = await sync_room_permissions(member)
-    await log_event(member.guild, "Room Locked", "Locked a tracked room.", actor=member, target=channel, extra_fields=[("Lock Type", "Staff" if locked_by_staff else "Owner")])
+    await log_event(
+        member.guild,
+        "Room Locked",
+        "Locked a tracked room.",
+        actor=actor,
+        target=channel,
+        extra_fields=[("Lock Type", "Staff" if locked_by_staff else "Owner")],
+    )
     return channel
 
 
-async def unlock_member_room(member, by_staff):
+async def unlock_member_room(member, by_staff, actor):
     """Unlock a member's room, respecting staff-owned locks."""
     lock_state = get_room_lock_state(member.guild.id, member.id)
     if not lock_state["locked"]:
@@ -291,7 +302,7 @@ async def unlock_member_room(member, by_staff):
 
     clear_room_lock_state(member.guild.id, member.id)
     channel = await sync_room_permissions(member)
-    await log_event(member.guild, "Room Unlocked", "Unlocked a tracked room.", actor=member, target=channel)
+    await log_event(member.guild, "Room Unlocked", "Unlocked a tracked room.", actor=actor, target=channel)
     return channel
 
 
@@ -300,10 +311,14 @@ def describe_member_room(guild, user_id):
     channel_id = get_personal_channel_id(guild.id, user_id)
     channel = guild.get_channel(channel_id) if channel_id else None
     lock_state = get_room_lock_state(guild.id, user_id)
+    lock_actor_id = lock_state["lock_actor_id"]
+    if lock_state["locked"] and lock_actor_id is None and not lock_state["locked_by_staff"]:
+        lock_actor_id = user_id
     return {
         "channel_id": channel_id,
         "exists": isinstance(channel, discord.TextChannel),
         "channel_name": channel.name if isinstance(channel, discord.TextChannel) else None,
         "locked": lock_state["locked"],
         "locked_by_staff": lock_state["locked_by_staff"],
+        "lock_actor_id": lock_actor_id,
     }

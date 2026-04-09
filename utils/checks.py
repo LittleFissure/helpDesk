@@ -2,12 +2,19 @@ from __future__ import annotations
 
 """Small validation helpers for command handlers."""
 
-from typing import Callable, Coroutine, Any
+from typing import Any, Callable, Coroutine
 
 import discord
 from discord import app_commands
 
 from services.guild_settings import get_guild_settings
+from services.restrictions import is_user_blocked
+
+
+BLOCKED_SELF_SERVICE_MESSAGE = (
+    "You are blocked from using room creation and self-service rename or colour-set commands in this server. "
+    "Ask staff if this should be removed."
+)
 
 
 def ensure_guild_interaction(interaction: discord.Interaction) -> None:
@@ -19,6 +26,13 @@ def ensure_guild_interaction(interaction: discord.Interaction) -> None:
 def member_has_staff_access(member: discord.Member, staff_role_id: int) -> bool:
     """Return True when the member has the configured staff role."""
     return any(role.id == staff_role_id for role in member.roles)
+
+
+def ensure_member_not_blocked(interaction: discord.Interaction) -> None:
+    """Raise a PermissionError if the interaction user is blocked from selected self-service commands."""
+    ensure_guild_interaction(interaction)
+    if is_user_blocked(interaction.guild.id, interaction.user.id):
+        raise PermissionError(BLOCKED_SELF_SERVICE_MESSAGE)
 
 
 def staff_only() -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], app_commands.Command]:

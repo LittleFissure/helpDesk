@@ -14,7 +14,7 @@ from services.channels import (
     rename_member_room,
     unlock_member_room,
 )
-from utils.checks import ensure_guild_interaction
+from utils.checks import ensure_guild_interaction, ensure_member_not_blocked
 from utils.naming import sanitise_channel_name
 
 
@@ -30,7 +30,8 @@ class RoomCog(commands.Cog):
     async def room_create(self, interaction: discord.Interaction) -> None:
         try:
             ensure_guild_interaction(interaction)
-        except ValueError as error:
+            ensure_member_not_blocked(interaction)
+        except (ValueError, PermissionError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
@@ -61,7 +62,8 @@ class RoomCog(commands.Cog):
     async def room_rename(self, interaction: discord.Interaction, new_name: str) -> None:
         try:
             ensure_guild_interaction(interaction)
-        except ValueError as error:
+            ensure_member_not_blocked(interaction)
+        except (ValueError, PermissionError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
@@ -75,7 +77,7 @@ class RoomCog(commands.Cog):
             return
 
         try:
-            channel = await rename_member_room(interaction.guild, member.id, clean_name)
+            channel = await rename_member_room(interaction.guild, member.id, clean_name, actor=member)
         except LookupError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
@@ -100,12 +102,15 @@ class RoomCog(commands.Cog):
         exists_text = "Yes" if info["exists"] else "No"
         channel_text = "<#{0}>".format(info["channel_id"]) if info["channel_id"] else "Not tracked"
         lock_text = "Locked by staff" if info["locked_by_staff"] else ("Locked by owner" if info["locked"] else "Unlocked")
+        lock_actor_text = "<@{0}>".format(info["lock_actor_id"]) if info["lock_actor_id"] else "Unknown"
 
         embed = discord.Embed(title="Your Room Info")
         embed.add_field(name="Tracked Channel", value=channel_text, inline=False)
         embed.add_field(name="Exists", value=exists_text, inline=True)
         embed.add_field(name="Channel Name", value=info["channel_name"] or "Unknown", inline=True)
         embed.add_field(name="Lock State", value=lock_text, inline=False)
+        if info["locked"]:
+            embed.add_field(name="Locked By", value=lock_actor_text, inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -121,7 +126,7 @@ class RoomCog(commands.Cog):
         assert isinstance(member, discord.Member)
 
         try:
-            channel = await lock_member_room(member, locked_by_staff=False)
+            channel = await lock_member_room(member, locked_by_staff=False, actor=member)
         except LookupError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
@@ -143,7 +148,7 @@ class RoomCog(commands.Cog):
         assert isinstance(member, discord.Member)
 
         try:
-            channel = await unlock_member_room(member, by_staff=False)
+            channel = await unlock_member_room(member, by_staff=False, actor=member)
         except (LookupError, PermissionError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return

@@ -8,11 +8,11 @@ from discord.ext import commands
 
 from services.roles import (
     describe_member_role,
-    ensure_personal_role,
     rename_personal_role,
     reset_personal_role_colour,
+    set_personal_role_colour,
 )
-from utils.checks import ensure_guild_interaction
+from utils.checks import ensure_guild_interaction, ensure_member_not_blocked
 from utils.naming import normalise_hex_colour, sanitise_role_name
 
 
@@ -29,7 +29,8 @@ class ColorCog(commands.Cog):
     async def color_set(self, interaction: discord.Interaction, hex_code: str) -> None:
         try:
             ensure_guild_interaction(interaction)
-        except ValueError as error:
+            ensure_member_not_blocked(interaction)
+        except (ValueError, PermissionError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
@@ -43,9 +44,7 @@ class ColorCog(commands.Cog):
         member = interaction.user
         assert isinstance(member, discord.Member)
 
-        role = await ensure_personal_role(member)
-        await role.edit(colour=colour, reason="Personal colour updated by {0}".format(member))
-
+        await set_personal_role_colour(member, colour, actor=member)
         await interaction.response.send_message(
             "Updated your personal colour to `{0}`.".format(clean_hex),
             ephemeral=True,
@@ -62,7 +61,7 @@ class ColorCog(commands.Cog):
         member = interaction.user
         assert isinstance(member, discord.Member)
 
-        await reset_personal_role_colour(member)
+        await reset_personal_role_colour(member, actor=member)
         await interaction.response.send_message(
             "Your personal colour has been reset.",
             ephemeral=True,
@@ -73,7 +72,8 @@ class ColorCog(commands.Cog):
     async def color_rename(self, interaction: discord.Interaction, new_name: str) -> None:
         try:
             ensure_guild_interaction(interaction)
-        except ValueError as error:
+            ensure_member_not_blocked(interaction)
+        except (ValueError, PermissionError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
@@ -86,7 +86,7 @@ class ColorCog(commands.Cog):
         member = interaction.user
         assert isinstance(member, discord.Member)
 
-        role = await rename_personal_role(member, clean_name)
+        role = await rename_personal_role(member, clean_name, actor=member)
         await interaction.response.send_message(
             "Renamed your personal role to **{0}**.".format(role.name),
             ephemeral=True,

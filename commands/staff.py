@@ -12,13 +12,14 @@ from services.channels import (
     claim_member_room,
     delete_member_room,
     describe_member_room,
+    iter_personal_channel_rows,
     lock_member_room,
-    reset_member_room,
     rename_member_room,
+    reset_member_room,
     sync_room_permissions,
     unlock_member_room,
-    iter_personal_channel_rows,
 )
+from services.restrictions import block_user, describe_user_block, unblock_user
 from services.roles import (
     claim_personal_role,
     delete_personal_role,
@@ -27,11 +28,12 @@ from services.roles import (
     rename_personal_role,
     reset_personal_role_colour,
     iter_personal_role_rows,
+    set_personal_role_colour,
 )
 from services.sync_tools import repair_guild_assets
 from utils.checks import ensure_guild_interaction, staff_only
 from utils.confirmations import confirm_action
-from utils.naming import sanitise_channel_name, sanitise_role_name
+from utils.naming import normalise_hex_colour, sanitise_channel_name, sanitise_role_name
 
 
 PAGE_SIZE = 10
@@ -303,6 +305,12 @@ class StaffCog(commands.Cog):
         embed.add_field(name="Exists", value=exists_text, inline=True)
         embed.add_field(name="Channel Name", value=info["channel_name"] or "Unknown", inline=True)
         embed.add_field(name="Lock State", value=lock_text, inline=False)
+        if info["locked"]:
+            embed.add_field(
+                name="Locked By",
+                value="<@{0}>".format(info["lock_actor_id"]) if info["lock_actor_id"] else "Unknown",
+                inline=False,
+            )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @staff_group.command(name="role-info", description="Show another member's tracked role info")
@@ -318,11 +326,38 @@ class StaffCog(commands.Cog):
         embed.add_field(name="Role Name", value=info["role_name"] or "Unknown", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @staff_group.command(name="user-info", description="Show a detailed combined overview for one member")
+    @staff_only()
+    async def user_info(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        room_info = describe_member_room(interaction.guild, member.id)
+        role_info = describe_member_role(interaction.guild, member.id)
+        block_info = describe_user_block(interaction.guild, member.id)
+
+        role_text = "<@&{0}>".format(role_info["role_id"]) if role_info["role_id"] else "Not tracked"
+        channel_text = "<#{0}>".format(room_info["channel_id"]) if room_info["channel_id"] else "Not tracked"
+        lock_text = "Locked by staff" if room_info["locked_by_staff"] else ("Locked by owner" if room_info["locked"] else "Unlocked")
+        locked_by_text = "<@{0}>".format(room_info["lock_actor_id"]) if room_info["lock_actor_id"] else "Unknown"
+        blocked_text = "Yes" if block_info["blocked"] else "No"
+        blocked_by_text = "<@{0}>".format(block_info["blocked_by_user_id"]) if block_info["blocked_by_user_id"] else "Not blocked"
+
+        embed = discord.Embed(title="User Info for {0}".format(member))
+        embed.add_field(name="Tracked Role", value=role_text, inline=False)
+        embed.add_field(name="Role Exists", value="Yes" if role_info["exists"] else "No", inline=True)
+        embed.add_field(name="Role Name", value=role_info["role_name"] or "Unknown", inline=True)
+        embed.add_field(name="Tracked Room", value=channel_text, inline=False)
+        embed.add_field(name="Room Exists", value="Yes" if room_info["exists"] else "No", inline=True)
+        embed.add_field(name="Room Name", value=room_info["channel_name"] or "Unknown", inline=True)
+        embed.add_field(name="Lock State", value=lock_text, inline=False)
+        embed.add_field(name="Locked By", value=locked_by_text if room_info["locked"] else "Not locked", inline=True)
+        embed.add_field(name="Blocked", value=blocked_text, inline=True)
+        embed.add_field(name="Blocked By", value=blocked_by_text, inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @staff_group.command(name="room-lock", description="Lock another member's room so only staff can send there")
     @staff_only()
     async def room_lock_user(self, interaction: discord.Interaction, member: discord.Member) -> None:
         try:
-            channel = await lock_member_room(member, locked_by_staff=True)
+            channel = await lock_member_room(member, locked_by_staff=True, actor=interaction.user)
         except LookupError as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
@@ -336,7 +371,7 @@ class StaffCog(commands.Cog):
     @staff_only()
     async def room_unlock_user(self, interaction: discord.Interaction, member: discord.Member) -> None:
         try:
-            channel = await unlock_member_room(member, by_staff=True)
+            channel = await unlock_member_room(member, by_staff=True, actor=interaction.user)
         except (LookupError, PermissionError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
@@ -357,7 +392,7 @@ class StaffCog(commands.Cog):
         try:
             ensure_guild_interaction(interaction)
             clean_name = sanitise_channel_name(new_name)
-            channel = await rename_member_room(interaction.guild, member.id, clean_name)
+            channel = await rename_member_room(interaction.guild, member.id, clean_name, actor=interaction.user)
         except (ValueError, LookupError) as error:
             await interaction.response.send_message(str(error), ephemeral=True)
             return
@@ -412,10 +447,27 @@ class StaffCog(commands.Cog):
             ephemeral=True,
         )
 
+    @staff_group.command(name="color-set", description="Set another member's personal role colour")
+    @staff_only()
+    @app_commands.describe(hex_code="Hex colour in the form #ff66aa")
+    async def color_set_user(self, interaction: discord.Interaction, member: discord.Member, hex_code: str) -> None:
+        try:
+            clean_hex = normalise_hex_colour(hex_code)
+            colour = discord.Colour.from_str(clean_hex)
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
+        await set_personal_role_colour(member, colour, actor=interaction.user)
+        await interaction.response.send_message(
+            "Set {0}'s personal role colour to `{1}`.".format(member.mention, clean_hex),
+            ephemeral=True,
+        )
+
     @staff_group.command(name="color-reset", description="Reset another member's personal role colour")
     @staff_only()
     async def color_reset_user(self, interaction: discord.Interaction, member: discord.Member) -> None:
-        await reset_personal_role_colour(member)
+        await reset_personal_role_colour(member, actor=interaction.user)
         await interaction.response.send_message(
             "Reset the personal role colour for {0}.".format(member.mention),
             ephemeral=True,
@@ -435,7 +487,7 @@ class StaffCog(commands.Cog):
             await interaction.response.send_message(str(error), ephemeral=True)
             return
 
-        role = await rename_personal_role(member, clean_name)
+        role = await rename_personal_role(member, clean_name, actor=interaction.user)
         await interaction.response.send_message(
             "Renamed {0}'s personal role to **{1}**.".format(member.mention, role.name),
             ephemeral=True,
@@ -486,22 +538,54 @@ class StaffCog(commands.Cog):
             ephemeral=True,
         )
 
+    @staff_group.command(name="block-user", description="Block a member from selected self-service commands")
+    @staff_only()
+    async def block_user_command(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        try:
+            await block_user(member, actor=interaction.user)
+        except (PermissionError, LookupError) as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "Blocked {0} from `/room create`, `/room rename`, `/color set`, and `/color rename`.".format(member.mention),
+            ephemeral=True,
+        )
+
+    @staff_group.command(name="unblock-user", description="Remove a member block for selected self-service commands")
+    @staff_only()
+    async def unblock_user_command(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        try:
+            await unblock_user(member, actor=interaction.user)
+        except LookupError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            "Removed the self-service command block for {0}.".format(member.mention),
+            ephemeral=True,
+        )
+
     @staff_repair.error
     @verify_user.error
     @sync_user.error
     @list_assets.error
     @room_info_user.error
     @role_info_user.error
+    @user_info.error
     @room_lock_user.error
     @room_unlock_user.error
     @room_rename_user.error
     @room_delete_user.error
     @room_reset_user.error
+    @color_set_user.error
     @color_reset_user.error
     @color_rename_user.error
     @role_delete_user.error
     @claim_room.error
     @claim_role.error
+    @block_user_command.error
+    @unblock_user_command.error
     async def staff_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
         if isinstance(error, app_commands.errors.CheckFailure):
             message = (

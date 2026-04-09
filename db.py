@@ -65,6 +65,23 @@ def init_db():
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 locked_by_staff INTEGER NOT NULL DEFAULT 0,
+                lock_actor_id INTEGER,
+                PRIMARY KEY (guild_id, user_id)
+            )
+            """
+        )
+        lock_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(room_locks)").fetchall()
+        }
+        if "lock_actor_id" not in lock_columns:
+            connection.execute("ALTER TABLE room_locks ADD COLUMN lock_actor_id INTEGER")
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS blocked_users (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                blocked_by_user_id INTEGER NOT NULL,
                 PRIMARY KEY (guild_id, user_id)
             )
             """

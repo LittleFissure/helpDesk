@@ -65,7 +65,6 @@ class SetupCog(commands.Cog):
             ephemeral=True,
         )
 
-
     @setup_group.command(name="log-channel", description="Choose which channel receives bot audit logs")
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.describe(channel="Text channel where audit logs should be sent")
@@ -85,7 +84,6 @@ class SetupCog(commands.Cog):
             "Audit logs will now be sent to {0}.".format(channel.mention),
             ephemeral=True,
         )
-
 
     @setup_group.command(name="create-category", description="Create a category for personal rooms")
     @app_commands.checks.has_permissions(manage_guild=True)
