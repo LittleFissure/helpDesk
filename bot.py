@@ -52,6 +52,9 @@ async def on_member_remove(member):
 
 async def main():
     """Initialise the database, register cogs, and start the bot."""
+    import asyncio
+    await asyncio.sleep(5)
+
     init_db()
     await bot.add_cog(ColorCog(bot))
     await bot.add_cog(RoomCog(bot))
@@ -63,5 +66,4 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-
     asyncio.run(main())
