@@ -1,21 +1,26 @@
-from __future__ import annotations
-
 """SQLite persistence helpers for guild settings and ownership mappings."""
+
+from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("data/bot.db")
+# Store the database on the Railway volume.
+# The volume is mounted at /data, so this file will survive redeploys and restarts.
+DB_PATH = Path("/data/bot.db")
+
+print(f"Using database at: {DB_PATH.resolve()}")
 
 
-def get_connection():
+def get_connection() -> sqlite3.Connection:
     """Return a SQLite connection with row access by column name."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
 
 
-def init_db():
+def init_db() -> None:
     """Create database tables if they do not already exist."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -25,19 +30,12 @@ def init_db():
             CREATE TABLE IF NOT EXISTS guild_settings (
                 guild_id INTEGER PRIMARY KEY,
                 room_category_id INTEGER,
-                staff_role_id INTEGER,
                 archive_category_id INTEGER,
+                staff_role_id INTEGER,
                 log_channel_id INTEGER
             )
             """
         )
-        existing_columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(guild_settings)").fetchall()
-        }
-        if "archive_category_id" not in existing_columns:
-            connection.execute("ALTER TABLE guild_settings ADD COLUMN archive_category_id INTEGER")
-        if "log_channel_id" not in existing_columns:
-            connection.execute("ALTER TABLE guild_settings ADD COLUMN log_channel_id INTEGER")
 
         connection.execute(
             """
@@ -49,6 +47,7 @@ def init_db():
             )
             """
         )
+
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS personal_channels (
@@ -59,6 +58,7 @@ def init_db():
             )
             """
         )
+
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS room_locks (
@@ -70,20 +70,19 @@ def init_db():
             )
             """
         )
-        lock_columns = {
-            row["name"] for row in connection.execute("PRAGMA table_info(room_locks)").fetchall()
-        }
-        if "lock_actor_id" not in lock_columns:
-            connection.execute("ALTER TABLE room_locks ADD COLUMN lock_actor_id INTEGER")
 
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS blocked_users (
+            CREATE TABLE IF NOT EXISTS user_blocks (
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
-                blocked_by_user_id INTEGER NOT NULL,
+                color_blocked INTEGER NOT NULL DEFAULT 0,
+                color_block_actor_id INTEGER,
+                room_blocked INTEGER NOT NULL DEFAULT 0,
+                room_block_actor_id INTEGER,
                 PRIMARY KEY (guild_id, user_id)
             )
             """
         )
+
         connection.commit()
