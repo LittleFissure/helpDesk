@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import zipfile
 from pathlib import Path
 
@@ -29,13 +28,18 @@ class BotAdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    bot_group = app_commands.Group(name="bot", description="Bot-owner-only commands")
+    # Important: the attribute name must NOT start with "bot_"
+    # The slash command group name can still be "bot"
+    admin_group = app_commands.Group(name="bot", description="Bot-owner-only commands")
 
-    @bot_group.command(name="status", description="Show basic bot status")
-    async def bot_status(self, interaction: discord.Interaction) -> None:
+    @admin_group.command(name="status", description="Show basic bot status")
+    async def status(self, interaction: discord.Interaction) -> None:
         """Show a small status summary for the bot."""
         if not is_bot_admin(interaction.user.id):
-            await interaction.response.send_message("You are not allowed to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "You are not allowed to use this command.",
+                ephemeral=True,
+            )
             return
 
         guild_count = len(self.bot.guilds)
@@ -52,11 +56,14 @@ class BotAdminCog(commands.Cog):
             ephemeral=True,
         )
 
-    @bot_group.command(name="backup-db", description="Zip and upload the live database")
+    @admin_group.command(name="backup-db", description="Zip and upload the live database")
     async def backup_db(self, interaction: discord.Interaction) -> None:
         """Create a zipped database backup and upload it to transfer.sh."""
         if not is_bot_admin(interaction.user.id):
-            await interaction.response.send_message("You are not allowed to use this command.", ephemeral=True)
+            await interaction.response.send_message(
+                "You are not allowed to use this command.",
+                ephemeral=True,
+            )
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -67,11 +74,9 @@ class BotAdminCog(commands.Cog):
 
         ZIP_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        # Remove any previous backup file to avoid confusion.
         if ZIP_PATH.exists():
             ZIP_PATH.unlink()
 
-        # Compress the SQLite database.
         with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.write(DB_PATH, arcname="bot.db")
 
