@@ -28,7 +28,11 @@ def is_user_blocked(guild_id: int, user_id: int) -> bool:
     """Return True when the user is blocked from selected self-service commands."""
     with get_connection() as connection:
         row = connection.execute(
-            "SELECT 1 FROM blocked_users WHERE guild_id = ? AND user_id = ?",
+            """
+            SELECT 1 FROM user_blocks
+            WHERE guild_id = ? AND user_id = ?
+            AND (color_blocked = 1 OR room_blocked = 1)
+            """,
             (guild_id, user_id),
         ).fetchone()
     return row is not None
@@ -38,7 +42,12 @@ def get_block_record(guild_id: int, user_id: int):
     """Return the raw block record for a guild/user pair, if any."""
     with get_connection() as connection:
         row = connection.execute(
-            "SELECT blocked_by_user_id FROM blocked_users WHERE guild_id = ? AND user_id = ?",
+            """
+            SELECT color_blocked, room_blocked,
+                   color_block_actor_id, room_block_actor_id
+            FROM user_blocks
+            WHERE guild_id = ? AND user_id = ?
+            """,
             (guild_id, user_id),
         ).fetchone()
     return row
@@ -47,35 +56,61 @@ def get_block_record(guild_id: int, user_id: int):
 def describe_user_block(guild: discord.Guild, user_id: int):
     """Return a small info dict about a user's blocked state."""
     row = get_block_record(guild.id, user_id)
-    blocked_by_user_id = int(row["blocked_by_user_id"]) if row else None
+
+    if not row:
+        return {
+            "blocked": False,
+            "blocked_by_user_id": None,
+            "color_blocked": False,
+            "room_blocked": False,
+        }
+
+    blocked = row["color_blocked"] or row["room_blocked"]
+
+    # pick whichever actor exists (color or room)
+    actor_id = row["color_block_actor_id"] or row["room_block_actor_id"]
+
     return {
-        "blocked": row is not None,
-        "blocked_by_user_id": blocked_by_user_id,
+        "blocked": blocked,
+        "blocked_by_user_id": actor_id,
+        "color_blocked": bool(row["color_blocked"]),
+        "room_blocked": bool(row["room_blocked"]),
     }
 
 
 async def block_user(member: discord.Member, actor: discord.abc.User):
-    """Persist a restriction that blocks a user from selected self-service commands."""
+    """Block a user from both room and color self-service commands."""
     if is_member_block_immune(member):
-        raise PermissionError("That member cannot be blocked because they are staff or have server management access.")
+        raise PermissionError(
+            "That member cannot be blocked because they are staff or have server management access."
+        )
+
     if is_user_blocked(member.guild.id, member.id):
-        raise LookupError("That member is already blocked from self-service rename and set commands.")
+        raise LookupError("That member is already blocked.")
 
     with get_connection() as connection:
         connection.execute(
             """
-            INSERT INTO blocked_users (guild_id, user_id, blocked_by_user_id)
-            VALUES (?, ?, ?)
-            ON CONFLICT(guild_id, user_id) DO UPDATE SET blocked_by_user_id = excluded.blocked_by_user_id
+            INSERT INTO user_blocks (
+                guild_id, user_id,
+                color_blocked, color_block_actor_id,
+                room_blocked, room_block_actor_id
+            )
+            VALUES (?, ?, 1, ?, 1, ?)
+            ON CONFLICT(guild_id, user_id) DO UPDATE SET
+                color_blocked = 1,
+                color_block_actor_id = excluded.color_block_actor_id,
+                room_blocked = 1,
+                room_block_actor_id = excluded.room_block_actor_id
             """,
-            (member.guild.id, member.id, actor.id),
+            (member.guild.id, member.id, actor.id, actor.id),
         )
         connection.commit()
 
     await log_event(
         member.guild,
         "User Blocked",
-        "Blocked a member from selected self-service room and role commands.",
+        "Blocked a member from room and role self-service commands.",
         actor=actor,
         target=member,
     )
@@ -88,7 +123,14 @@ async def unblock_user(member: discord.Member, actor: discord.abc.User):
 
     with get_connection() as connection:
         connection.execute(
-            "DELETE FROM blocked_users WHERE guild_id = ? AND user_id = ?",
+            """
+            UPDATE user_blocks
+            SET color_blocked = 0,
+                room_blocked = 0,
+                color_block_actor_id = NULL,
+                room_block_actor_id = NULL
+            WHERE guild_id = ? AND user_id = ?
+            """,
             (member.guild.id, member.id),
         )
         connection.commit()
@@ -96,7 +138,7 @@ async def unblock_user(member: discord.Member, actor: discord.abc.User):
     await log_event(
         member.guild,
         "User Unblocked",
-        "Removed a member restriction for self-service room and role commands.",
+        "Removed a member restriction for room and role commands.",
         actor=actor,
         target=member,
     )
