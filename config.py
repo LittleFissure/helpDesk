@@ -1,19 +1,23 @@
-from __future__ import annotations
+"""Configuration loading for the Discord personal rooms bot."""
 
-"""Configuration loading for the multi-server Discord personal rooms bot."""
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
-
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _get_optional_int(name):
-    value = os.getenv(name, "").strip()
-    return int(value) if value else None
+def _parse_int_set(raw: str) -> set[int]:
+    """Parse a comma-separated list of integer IDs."""
+    values: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        values.add(int(part))
+    return values
 
 
 @dataclass(frozen=True)
@@ -21,12 +25,12 @@ class Settings:
     """Simple immutable settings container."""
 
     bot_token: str
-    log_channel_id: Optional[int]
+    bot_admin_ids: set[int]
 
 
 settings = Settings(
     bot_token=os.getenv("DISCORD_BOT_TOKEN", "").strip(),
-    log_channel_id=_get_optional_int("LOG_CHANNEL_ID"),
+    bot_admin_ids=_parse_int_set(os.getenv("BOT_ADMIN_IDS", "")),
 )
 
 if not settings.bot_token:
