@@ -56,55 +56,38 @@ class BotAdminCog(commands.Cog):
             ephemeral=True,
         )
 
-    @admin_group.command(name="backup-db", description="Zip and upload the live database")
-    async def backup_db(self, interaction: discord.Interaction) -> None:
-        """Create a zipped database backup and upload it to transfer.sh."""
-        if not is_bot_admin(interaction.user.id):
-            await interaction.response.send_message(
-                "You are not allowed to use this command.",
-                ephemeral=True,
-            )
-            return
+   @admin_group.command(name="backup-db", description="Zip and send the live database")
+async def backup_db(self, interaction: discord.Interaction) -> None:
+    """Create a zipped database backup and send it through Discord."""
+    if not is_bot_admin(interaction.user.id):
+        await interaction.response.send_message(
+            "You are not allowed to use this command.",
+            ephemeral=True,
+        )
+        return
 
-        await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
 
-        if not DB_PATH.exists():
-            await interaction.followup.send("Database file was not found.", ephemeral=True)
-            return
+    if not DB_PATH.exists():
+        await interaction.followup.send("Database file was not found.", ephemeral=True)
+        return
 
-        ZIP_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ZIP_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-        if ZIP_PATH.exists():
-            ZIP_PATH.unlink()
+    if ZIP_PATH.exists():
+        ZIP_PATH.unlink()
 
-        with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.write(DB_PATH, arcname="bot.db")
+    with zipfile.ZipFile(ZIP_PATH, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(DB_PATH, arcname="bot.db")
 
-        file_size = ZIP_PATH.stat().st_size
-        file_size_mb = round(file_size / (1024 * 1024), 2)
+    file_size = ZIP_PATH.stat().st_size
+    file_size_mb = round(file_size / (1024 * 1024), 2)
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                with ZIP_PATH.open("rb") as file_handle:
-                    async with session.put("https://transfer.sh/bot-backup.zip", data=file_handle) as response:
-                        response_text = (await response.text()).strip()
-
-            if not response_text.startswith("http"):
-                await interaction.followup.send(
-                    f"Backup zip was created ({file_size_mb} MB), but upload failed.\nResponse: `{response_text}`",
-                    ephemeral=True,
-                )
-                return
-
-            await interaction.followup.send(
-                (
-                    f"Backup created and uploaded.\n"
-                    f"- Size: **{file_size_mb} MB**\n"
-                    f"- Download: {response_text}\n\n"
-                    f"Treat this link as sensitive and remove this command after use."
-                ),
-                ephemeral=True,
-            )
+    await interaction.followup.send(
+        content=f"Backup created ({file_size_mb} MB).",
+        file=discord.File(ZIP_PATH, filename="bot-backup.zip"),
+        ephemeral=True,
+    )
 
         except Exception as error:
             await interaction.followup.send(
