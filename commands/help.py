@@ -18,7 +18,7 @@ HELP_ENTRIES = {
     "/room create": {"summary": "Create your public personal room in the configured category.", "usage": "/room create", "details": "Creates one tracked room for you in the current server. Blocked users cannot use this command."},
     "/room rename": {"summary": "Rename your personal room.", "usage": "/room rename <new_name>", "details": "Only renames the room tracked as yours in the current server. Blocked users cannot use this command."},
     "/room info": {"summary": "Show your tracked personal room information.", "usage": "/room info", "details": "Displays the tracked room ID, existence state, current name, and lock state."},
-    "/room lock": {"summary": "Lock your room so only staff can send messages there.", "usage": "/room lock", "details": "Public visibility stays on, but only staff can talk while the room is locked."},
+    "/room lock": {"summary": "Lock your room so only you and staff can send messages there.", "usage": "/room lock", "details": "Public visibility stays on, but only staff can talk while the room is locked."},
     "/room unlock": {"summary": "Unlock your room.", "usage": "/room unlock", "details": "If staff locked the room, only staff can unlock it."},
     "/setup category": {"summary": "Set the category used for personal rooms.", "usage": "/setup category <category>", "details": "Administrator-only. Stores the chosen category for the current server."},
     "/setup archive-category": {"summary": "Set the category used for archived rooms.", "usage": "/setup archive-category <category>", "details": "Administrator-only. Rooms are moved here when members leave."},
