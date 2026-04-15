@@ -64,8 +64,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
 
-    async def main():
-        await asyncio.sleep(5)
-        await bot.start(settings.bot_token)
-
     asyncio.run(main())
